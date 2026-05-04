@@ -1,3 +1,9 @@
+---
+name: openapi-api-designer
+description: Design HTTP APIs from business capabilities and emit an OpenAPI 3.2.0 document in YAML (preferred) or JSON.
+trigger: "design an openapi spec, design an api, openapi-api-designer"
+---
+
 # Skill: openapi-api-designer
 
 Design HTTP APIs from business capabilities and emit an OpenAPI 3.2.0 document in YAML (preferred) or JSON.
