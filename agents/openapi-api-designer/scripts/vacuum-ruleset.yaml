@@ -1,0 +1,424 @@
+# =============================================================================
+# vacuum ruleset — OpenAPI 3.2 semantic-context lint
+# =============================================================================
+# Drop-in replacement for scripts/lint.py, expressed as a vacuum ruleset.
+# Companion to scripts/validate.py — that one answers "does it parse?",
+# this one answers "is the spec usable by AI agents and human integrators?".
+#
+# Usage:
+#   vacuum lint -r scripts/vacuum-ruleset.yaml path/to/openapi.yaml
+#
+# Strict mode (warnings fail the build, mirrors lint.py --strict):
+#   vacuum lint --fail-severity warn -r scripts/vacuum-ruleset.yaml openapi.yaml
+#
+# Install vacuum: https://quobix.com/vacuum/installing/
+#
+# Rule IDs map to lint.py codes in inline comments (E001, W101, I201, ...).
+# Severities follow lint.py: error / warn / info.
+# =============================================================================
+
+description: |
+  OpenAPI 3.2 semantic-context lint. Mirrors scripts/lint.py: enforces that
+  every operation, parameter, response, and reusable schema carries enough
+  semantic context (summaries, descriptions, examples, x-* extensions) to be
+  reliably consumed by humans and AI agents. Covers OAS 3.2 features
+  including additionalOperations, the QUERY method, hierarchical tags, and
+  streaming itemSchema.
+
+documentationUrl: "https://github.com/your-org/openapi-3.2-designer"
+
+# Turn off vacuum's built-in rules; run only what's defined below.
+# Change to `recommended` if you want vacuum's built-in checks to run too.
+extends: [[vacuum:oas, off]]
+
+rules:
+
+  # ===========================================================================
+  # E001 — every operation has a summary
+  # ===========================================================================
+  op-has-summary:
+    description: Every operation must have a non-empty summary.
+    message: "Operation is missing `summary`."
+    severity: error
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query]"
+      - "$.paths[*].additionalOperations[*]"
+    then:
+      field: summary
+      function: truthy
+
+  # ===========================================================================
+  # E002 — every operation has a non-empty description
+  # ===========================================================================
+  op-has-description:
+    description: Every operation must have a non-empty description.
+    message: "Operation is missing `description`."
+    severity: error
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query]"
+      - "$.paths[*].additionalOperations[*]"
+    then:
+      field: description
+      function: truthy
+
+  # ===========================================================================
+  # E003 — operationId required AND camelCase
+  # (split into two rules so messages stay specific)
+  # ===========================================================================
+  op-has-operationid:
+    description: Every operation must declare an operationId.
+    message: "Operation is missing `operationId`."
+    severity: error
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query]"
+      - "$.paths[*].additionalOperations[*]"
+    then:
+      field: operationId
+      function: truthy
+
+  op-operationid-camelcase:
+    description: operationId must be camelCase, starting with a lowercase letter.
+    message: "operationId `{{value}}` should match ^[a-z][A-Za-z0-9]*$ (verbResource style)."
+    severity: error
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query]"
+      - "$.paths[*].additionalOperations[*]"
+    then:
+      field: operationId
+      function: pattern
+      functionOptions:
+        match: "^[a-z][A-Za-z0-9]*$"
+
+  # ===========================================================================
+  # E004 — every operation has at least one tag
+  # ===========================================================================
+  op-has-tag:
+    description: Every operation must have at least one tag.
+    message: "Operation is missing `tags` (or tags array is empty)."
+    severity: error
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query]"
+      - "$.paths[*].additionalOperations[*]"
+    then:
+      field: tags
+      function: length
+      functionOptions:
+        min: 1
+
+  # ===========================================================================
+  # E005 — every operation declares x-business-capability
+  # ===========================================================================
+  op-has-x-business-capability:
+    description: Every operation must declare x-business-capability.
+    message: "Operation is missing `x-business-capability`."
+    severity: error
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query]"
+      - "$.paths[*].additionalOperations[*]"
+    then:
+      field: x-business-capability
+      function: truthy
+
+  # ===========================================================================
+  # E006 — every operation declares x-idempotent (must be a boolean)
+  # Schema function checks both presence AND type in one shot.
+  # ===========================================================================
+  op-x-idempotent-boolean:
+    description: Every operation must declare x-idempotent as a boolean (true|false).
+    message: "Operation `x-idempotent` must be present and boolean."
+    severity: error
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query]"
+      - "$.paths[*].additionalOperations[*]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: ["x-idempotent"]
+          properties:
+            x-idempotent:
+              type: boolean
+
+  # ===========================================================================
+  # E007 — every operation declares x-side-effects
+  # ===========================================================================
+  op-has-x-side-effects:
+    description: Every operation must declare x-side-effects.
+    message: "Operation is missing `x-side-effects`."
+    severity: error
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query]"
+      - "$.paths[*].additionalOperations[*]"
+    then:
+      field: x-side-effects
+      function: truthy
+
+  # ===========================================================================
+  # E008 — every parameter has a non-empty description
+  # Covers operation-level, path-level, and additionalOperations parameters.
+  # vacuum resolves $refs before linting, so reusable params are checked at
+  # their definition site in components.parameters automatically.
+  # ===========================================================================
+  parameter-has-description:
+    description: Every parameter must have a non-empty description.
+    message: "Parameter `{{value}}` is missing `description`."
+    severity: error
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query].parameters[*]"
+      - "$.paths[*].additionalOperations[*].parameters[*]"
+      - "$.paths[*].parameters[*]"
+      - "$.components.parameters[*]"
+    then:
+      field: description
+      function: truthy
+
+  # ===========================================================================
+  # E009 — every documented response has a description
+  # ===========================================================================
+  response-has-description:
+    description: Every response must have a description.
+    message: "Response is missing `description`."
+    severity: error
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query].responses[*]"
+      - "$.paths[*].additionalOperations[*].responses[*]"
+      - "$.components.responses[*]"
+    then:
+      field: description
+      function: truthy
+
+  # ===========================================================================
+  # E010 — 4xx/5xx responses with a body must offer application/problem+json
+  # Uses JSON Schema if/then so we only assert the requirement when `content`
+  # is present (a 4xx response with no body is allowed).
+  # ===========================================================================
+  error-response-problem-json:
+    description: 4xx/5xx responses with a body must offer application/problem+json (RFC 9457).
+    message: "Error response should offer `application/problem+json`."
+    severity: error
+    recommended: true
+    given: "$..responses[?(@property.match(/^[45]/))]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          if:
+            type: object
+            required: ["content"]
+          then:
+            properties:
+              content:
+                type: object
+                required: ["application/problem+json"]
+
+  # ===========================================================================
+  # E011 — every reusable schema has a title AND a description
+  # Two rules so the violation message points at the missing field specifically.
+  # ===========================================================================
+  schema-has-title:
+    description: Every reusable schema must have a title.
+    message: "Schema `{{property}}` is missing `title`."
+    severity: error
+    recommended: true
+    given: "$.components.schemas[*]"
+    then:
+      field: title
+      function: truthy
+
+  schema-has-description:
+    description: Every reusable schema must have a description.
+    message: "Schema `{{property}}` is missing `description`."
+    severity: error
+    recommended: true
+    given: "$.components.schemas[*]"
+    then:
+      field: description
+      function: truthy
+
+  # ===========================================================================
+  # W101 — every operation has at least one x-use-case entry
+  # ===========================================================================
+  op-has-x-use-case:
+    description: Operations should declare at least one x-use-case entry.
+    message: "Operation is missing `x-use-case` (or list is empty)."
+    severity: warn
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query]"
+      - "$.paths[*].additionalOperations[*]"
+    then:
+      field: x-use-case
+      function: length
+      functionOptions:
+        min: 1
+
+  # ===========================================================================
+  # W102 — every parameter has an example or examples
+  # anyOf so we accept either keyword (or a $ref placeholder).
+  # ===========================================================================
+  parameter-has-example:
+    description: Every parameter should provide an example or examples.
+    message: "Parameter has no `example` or `examples` provided."
+    severity: warn
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query].parameters[*]"
+      - "$.paths[*].additionalOperations[*].parameters[*]"
+      - "$.paths[*].parameters[*]"
+      - "$.components.parameters[*]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          anyOf:
+            - required: [example]
+            - required: [examples]
+
+  # ===========================================================================
+  # W103 — request bodies should have at least one example per media type
+  # ===========================================================================
+  request-body-has-example:
+    description: Request body media types should provide an example or examples.
+    message: "Request body media type has no `example` or `examples`."
+    severity: warn
+    recommended: true
+    given:
+      - "$.paths[*][get,put,post,delete,options,head,patch,trace,query].requestBody.content[*]"
+      - "$.paths[*].additionalOperations[*].requestBody.content[*]"
+      - "$.components.requestBodies[*].content[*]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          anyOf:
+            - required: [example]
+            - required: [examples]
+
+  # ===========================================================================
+  # W104 — 2xx responses should include at least one example per media type
+  # ===========================================================================
+  success-response-has-example:
+    description: 2xx response media types should provide an example or examples.
+    message: "2xx response media type has no `example` or `examples`."
+    severity: warn
+    recommended: true
+    given: "$..responses[?(@property.match(/^2/))].content[*]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          anyOf:
+            - required: [example]
+            - required: [examples]
+
+  # ===========================================================================
+  # W105 — tags form a hierarchy (at least one tag has `parent`, OAS 3.2)
+  # `contains` is a JSON Schema 2020-12 keyword: "at least one item matches".
+  # Fires once on the tags array if no tag declares a parent.
+  # ===========================================================================
+  tags-have-hierarchy:
+    description: At least one tag should declare a `parent` (OAS 3.2 hierarchical tags).
+    message: "No tag declares a `parent` — consider organising tags hierarchically."
+    severity: warn
+    recommended: true
+    given: "$"
+    then:
+      field: tags
+      function: schema
+      functionOptions:
+        schema:
+          type: array
+          contains:
+            type: object
+            required: [parent]
+
+  # ===========================================================================
+  # W106 — every tag has both summary AND description (OAS 3.2 adds summary)
+  # ===========================================================================
+  tag-has-summary:
+    description: Tags should have a summary (OAS 3.2 feature).
+    message: "Tag is missing `summary`."
+    severity: warn
+    recommended: true
+    given: "$.tags[*]"
+    then:
+      field: summary
+      function: truthy
+
+  tag-has-description:
+    description: Tags should have a description.
+    message: "Tag is missing `description`."
+    severity: warn
+    recommended: true
+    given: "$.tags[*]"
+    then:
+      field: description
+      function: truthy
+
+  # ===========================================================================
+  # W107 — root has externalDocs
+  # ===========================================================================
+  root-has-external-docs:
+    description: Root document should declare externalDocs.
+    message: "Root document is missing `externalDocs`."
+    severity: warn
+    recommended: true
+    given: "$"
+    then:
+      field: externalDocs
+      function: truthy
+
+  # ===========================================================================
+  # I201 — streaming responses use itemSchema (OAS 3.2 feature)
+  # One rule per streaming media type so the violation pinpoints the type.
+  # ===========================================================================
+  streaming-sse-has-itemschema:
+    description: text/event-stream responses should declare itemSchema (OAS 3.2).
+    message: "Streaming response (text/event-stream) without `itemSchema`."
+    severity: info
+    recommended: true
+    given: "$..responses[*].content['text/event-stream']"
+    then:
+      field: itemSchema
+      function: truthy
+
+  streaming-jsonl-has-itemschema:
+    description: application/jsonl responses should declare itemSchema (OAS 3.2).
+    message: "Streaming response (application/jsonl) without `itemSchema`."
+    severity: info
+    recommended: true
+    given: "$..responses[*].content['application/jsonl']"
+    then:
+      field: itemSchema
+      function: truthy
+
+  streaming-ndjson-has-itemschema:
+    description: application/x-ndjson responses should declare itemSchema (OAS 3.2).
+    message: "Streaming response (application/x-ndjson) without `itemSchema`."
+    severity: info
+    recommended: true
+    given: "$..responses[*].content['application/x-ndjson']"
+    then:
+      field: itemSchema
+      function: truthy
+
+  streaming-jsonseq-has-itemschema:
+    description: application/json-seq responses should declare itemSchema (OAS 3.2).
+    message: "Streaming response (application/json-seq) without `itemSchema`."
+    severity: info
+    recommended: true
+    given: "$..responses[*].content['application/json-seq']"
+    then:
+      field: itemSchema
+      function: truthy
